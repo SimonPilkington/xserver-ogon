@@ -47,6 +47,8 @@
 #include "extinit.h"
 #include "glx_extinit.h"
 
+int noGlxExtension;
+
 /*
 ** Forward declarations.
 */
@@ -323,12 +325,6 @@ GlxExtensionInit(void)
         FatalError("__glXExtensionInit: AddExtensions failed\n");
         return;
     }
-    /*
-       if (!AddExtensionAlias(GLX_EXTENSION_ALIAS, extEntry)) {
-       ErrorF("__glXExtensionInit: AddExtensionAlias failed\n");
-       return;
-       }
-     */
 
     __glXerrorBase = extEntry->errorBase;
     __glXBadContext = extEntry->errorBase + GLXBadContext;
@@ -347,7 +343,7 @@ GlxExtensionInit(void)
     /*
      ** Initialize table of client state.  There is never a client 0.
      */
-    for (i = 1; i <= MAXCLIENTS; i++) {
+    for (i = 1; i <= LimitClients; i++) {
         __glXClients[i] = 0;
     }
 

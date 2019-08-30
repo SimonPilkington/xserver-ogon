@@ -52,6 +52,7 @@ modesetting_drv_la_SOURCES = \
 	 dumb_bo.h \
 	 present.c \
 	 vblank.c \
+	 pageflip.c \
 	 $(NULL)
 
 drivermandir = $(DRIVER_MAN_DIR)

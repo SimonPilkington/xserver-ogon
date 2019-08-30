@@ -51,7 +51,9 @@ glamor_poly_fill_rect_gl(DrawablePtr drawable,
     int off_x, off_y;
     GLshort *v;
     char *vbo_offset;
-    int box_x, box_y;
+    int box_index;
+    Bool ret = FALSE;
+    BoxRec bounds = glamor_no_rendering_bounds();
 
     pixmap_priv = glamor_get_pixmap_private(pixmap);
     if (!GLAMOR_PIXMAP_PRIV_HAS_FBO(pixmap_priv))
@@ -59,13 +61,19 @@ glamor_poly_fill_rect_gl(DrawablePtr drawable,
 
     glamor_make_current(glamor_priv);
 
+    if (nrect < 100) {
+        bounds = glamor_start_rendering_bounds();
+        for (int i = 0; i < nrect; i++)
+            glamor_bounds_union_rect(&bounds, &prect[i]);
+    }
+
     if (glamor_priv->glsl_version >= 130) {
         prog = glamor_use_program_fill(pixmap, gc,
                                        &glamor_priv->poly_fill_rect_program,
                                        &glamor_facet_polyfillrect_130);
 
         if (!prog)
-            goto bail_ctx;
+            goto bail;
 
         /* Set up the vertex buffers for the points */
 
@@ -87,7 +95,7 @@ glamor_poly_fill_rect_gl(DrawablePtr drawable,
                                        &glamor_facet_polyfillrect_120);
 
         if (!prog)
-            goto bail_ctx;
+            goto bail;
 
         /* Set up the vertex buffers for the points */
 
@@ -111,44 +119,48 @@ glamor_poly_fill_rect_gl(DrawablePtr drawable,
 
     glEnable(GL_SCISSOR_TEST);
 
-    glamor_pixmap_loop(pixmap_priv, box_x, box_y) {
+    glamor_pixmap_loop(pixmap_priv, box_index) {
         int nbox = RegionNumRects(gc->pCompositeClip);
         BoxPtr box = RegionRects(gc->pCompositeClip);
 
-        glamor_set_destination_drawable(drawable, box_x, box_y, TRUE, FALSE, prog->matrix_uniform, &off_x, &off_y);
+        if (!glamor_set_destination_drawable(drawable, box_index, TRUE, FALSE,
+                                             prog->matrix_uniform, &off_x, &off_y))
+            goto bail;
 
         while (nbox--) {
-            glScissor(box->x1 + off_x,
-                      box->y1 + off_y,
-                      box->x2 - box->x1,
-                      box->y2 - box->y1);
+            BoxRec scissor = {
+                .x1 = max(box->x1, bounds.x1 + drawable->x),
+                .y1 = max(box->y1, bounds.y1 + drawable->y),
+                .x2 = min(box->x2, bounds.x2 + drawable->x),
+                .y2 = min(box->y2, bounds.y2 + drawable->y),
+            };
+
             box++;
+
+            if (scissor.x1 >= scissor.x2 || scissor.y1 >= scissor.y2)
+                continue;
+
+            glScissor(scissor.x1 + off_x,
+                      scissor.y1 + off_y,
+                      scissor.x2 - scissor.x1,
+                      scissor.y2 - scissor.y1);
             if (glamor_priv->glsl_version >= 130)
                 glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, nrect);
             else {
-                if (glamor_priv->gl_flavor == GLAMOR_GL_DESKTOP) {
-                    glDrawArrays(GL_QUADS, 0, nrect * 4);
-                } else {
-                    int i;
-                    for (i = 0; i < nrect; i++) {
-                        glDrawArrays(GL_TRIANGLE_FAN, i * 4, 4);
-                    }
-                }
+                glamor_glDrawArrays_GL_QUADS(glamor_priv, nrect);
             }
         }
     }
 
+    ret = TRUE;
+
+bail:
     glDisable(GL_SCISSOR_TEST);
-    glDisable(GL_COLOR_LOGIC_OP);
     if (glamor_priv->glsl_version >= 130)
         glVertexAttribDivisor(GLAMOR_VERTEX_POS, 0);
     glDisableVertexAttribArray(GLAMOR_VERTEX_POS);
 
-    return TRUE;
-bail_ctx:
-    glDisable(GL_COLOR_LOGIC_OP);
-bail:
-    return FALSE;
+    return ret;
 }
 
 static void
@@ -172,16 +184,4 @@ glamor_poly_fill_rect(DrawablePtr drawable,
     if (glamor_poly_fill_rect_gl(drawable, gc, nrect, prect))
         return;
     glamor_poly_fill_rect_bail(drawable, gc, nrect, prect);
-}
-
-Bool
-glamor_poly_fill_rect_nf(DrawablePtr drawable,
-                         GCPtr gc, int nrect, xRectangle *prect)
-{
-    if (glamor_poly_fill_rect_gl(drawable, gc, nrect, prect))
-        return TRUE;
-    if (glamor_ddx_fallback_check_pixmap(drawable) && glamor_ddx_fallback_check_gc(gc))
-        return FALSE;
-    glamor_poly_fill_rect_bail(drawable, gc, nrect, prect);
-    return TRUE;
 }

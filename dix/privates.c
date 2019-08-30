@@ -105,7 +105,6 @@ static const char *key_names[PRIVATE_LAST] = {
     [PRIVATE_CURSOR_BITS] = "CURSOR_BITS",
 
     /* extension privates */
-    [PRIVATE_DAMAGE] = "DAMAGE",
     [PRIVATE_GLYPH] = "GLYPH",
     [PRIVATE_GLYPHSET] = "GLYPHSET",
     [PRIVATE_PICTURE] = "PICTURE",
@@ -477,7 +476,8 @@ _dixAllocateObjectWithPrivates(unsigned baseSize, unsigned clear,
     PrivatePtr privates;
     PrivatePtr *devPrivates;
 
-    assert(type > PRIVATE_SCREEN && type < PRIVATE_LAST);
+    assert(type > PRIVATE_SCREEN);
+    assert(type < PRIVATE_LAST);
     assert(!screen_specific_private[type]);
 
     /* round up so that void * is aligned */
@@ -506,7 +506,8 @@ dixAllocatePrivates(PrivatePtr *privates, DevPrivateType type)
     unsigned size;
     PrivatePtr p;
 
-    assert(type > PRIVATE_XSELINUX && type < PRIVATE_LAST);
+    assert(type > PRIVATE_XSELINUX);
+    assert(type < PRIVATE_LAST);
     assert(!screen_specific_private[type]);
 
     size = global_keys[type].offset;
@@ -555,7 +556,8 @@ dixFreePrivates(PrivatePtr privates, DevPrivateType type)
 extern _X_EXPORT int
 dixPrivatesSize(DevPrivateType type)
 {
-    assert(type >= PRIVATE_SCREEN && type < PRIVATE_LAST);
+    assert(type >= PRIVATE_SCREEN);
+    assert(type < PRIVATE_LAST);
     assert (!screen_specific_private[type]);
 
     return global_keys[type].offset;
@@ -572,8 +574,6 @@ static const int offsets[] = {
     offsetof(ColormapRec, devPrivates), /* RT_COLORMAP */
 };
 
-#define NUM_OFFSETS	(sizeof (offsets) / sizeof (offsets[0]))
-
 int
 dixLookupPrivateOffset(RESTYPE type)
 {
@@ -588,7 +588,7 @@ dixLookupPrivateOffset(RESTYPE type)
             return offsets[RT_PIXMAP & TypeMask];
     }
     type = type & TypeMask;
-    if (type < NUM_OFFSETS)
+    if (type < ARRAY_SIZE(offsets))
         return offsets[type];
     return -1;
 }
@@ -699,7 +699,8 @@ _dixAllocateScreenObjectWithPrivates(ScreenPtr pScreen,
     PrivatePtr *devPrivates;
     int privates_size;
 
-    assert(type > PRIVATE_SCREEN && type < PRIVATE_LAST);
+    assert(type > PRIVATE_SCREEN);
+    assert(type < PRIVATE_LAST);
     assert (screen_specific_private[type]);
 
     if (pScreen)
@@ -725,7 +726,8 @@ _dixAllocateScreenObjectWithPrivates(ScreenPtr pScreen,
 int
 dixScreenSpecificPrivatesSize(ScreenPtr pScreen, DevPrivateType type)
 {
-    assert(type >= PRIVATE_SCREEN && type < PRIVATE_LAST);
+    assert(type >= PRIVATE_SCREEN);
+    assert(type < PRIVATE_LAST);
 
     if (screen_specific_private[type])
         return pScreen->screenSpecificPrivates[type].offset;
@@ -782,4 +784,13 @@ dixResetPrivates(void)
         global_keys[t].created = 0;
         global_keys[t].allocated = 0;
     }
+}
+
+Bool
+dixPrivatesCreated(DevPrivateType type)
+{
+    if (global_keys[type].created)
+        return TRUE;
+    else
+        return FALSE;
 }

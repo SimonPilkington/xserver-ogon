@@ -124,6 +124,12 @@ miCloseScreen(ScreenPtr pScreen)
     return ((*pScreen->DestroyPixmap) ((PixmapPtr) pScreen->devPrivate));
 }
 
+static Bool
+miSaveScreen(ScreenPtr pScreen, int on)
+{
+    return TRUE;
+}
+
 /* With the introduction of pixmap privates, the "screen pixmap" can no
  * longer be created in miScreenInit, since all the modules that could
  * possibly ask for pixmap private space have not been initialized at
@@ -242,7 +248,9 @@ miScreenInit(ScreenPtr pScreen, void *pbits,  /* pointer to screen bits */
         pScreen->CloseScreen = miCloseScreen;
     }
     /* else CloseScreen */
-    /* QueryBestSize, SaveScreen, GetImage, GetSpans */
+    /* QueryBestSize */
+    pScreen->SaveScreen = miSaveScreen;
+    /* GetImage, GetSpans */
     pScreen->SourceValidate = (SourceValidateProcPtr) 0;
     /* CreateWindow, DestroyWindow, PositionWindow, ChangeWindowAttributes */
     /* RealizeWindow, UnrealizeWindow */
@@ -253,6 +261,7 @@ miScreenInit(ScreenPtr pScreen, void *pbits,  /* pointer to screen bits */
     pScreen->ClearToBackground = miClearToBackground;
     pScreen->ClipNotify = (ClipNotifyProcPtr) 0;
     pScreen->RestackWindow = (RestackWindowProcPtr) 0;
+    pScreen->PaintWindow = miPaintWindow;
     /* CreatePixmap, DestroyPixmap */
     /* RealizeFont, UnrealizeFont */
     /* CreateGC */

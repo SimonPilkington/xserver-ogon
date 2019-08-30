@@ -23,10 +23,6 @@
 
 #ifdef HAVE_XORG_CONFIG_H
 #include <xorg-config.h>
-#else
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
 #endif
 
 #include <stddef.h>
@@ -43,12 +39,6 @@
 #include "X11/extensions/dpmsconst.h"
 #include "X11/Xatom.h"
 
-/* borrowed from composite extension, move to Render and publish? */
-
-#define F(x)	IntToxFixed(x)
-
-#define toF(x)	((float) (x) / 65536.0f)
-
 static void
 xf86RotateCrtcRedisplay(xf86CrtcPtr crtc, RegionPtr region)
 {
@@ -63,7 +53,7 @@ xf86RotateCrtcRedisplay(xf86CrtcPtr crtc, RegionPtr region)
     BoxPtr b = RegionRects(region);
     XID include_inferiors = IncludeInferiors;
 
-    if (crtc->driverIsPerformingTransform)
+    if (crtc->driverIsPerformingTransform & XF86DriverTransformOutput)
         return;
 
     src = CreatePicture(None,
@@ -227,8 +217,7 @@ xf86RotateRedisplay(ScreenPtr pScreen)
 }
 
 static void
-xf86RotateBlockHandler(ScreenPtr pScreen,
-                       void *pTimeout, void *pReadmask)
+xf86RotateBlockHandler(ScreenPtr pScreen, void *pTimeout)
 {
     ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
     xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(pScrn);
@@ -241,7 +230,7 @@ xf86RotateBlockHandler(ScreenPtr pScreen,
 
     xf86RotateRedisplay(pScreen);
 
-    (*pScreen->BlockHandler) (pScreen, pTimeout, pReadmask);
+    (*pScreen->BlockHandler) (pScreen, pTimeout);
 
     /* Re-wrap if we still need this hook */
     if (xf86_config->rotation_damage != NULL) {
@@ -366,6 +355,8 @@ xf86CrtcRotate(xf86CrtcPtr crtc)
     RRTransformPtr transform = NULL;
     Bool damage = FALSE;
 
+    if (pScreen->isGPU)
+        return TRUE;
     if (crtc->transformPresent)
         transform = &crtc->transform;
 
@@ -391,7 +382,7 @@ xf86CrtcRotate(xf86CrtcPtr crtc)
         new_height = 0;
     }
     else {
-        if (crtc->driverIsPerformingTransform) {
+        if (crtc->driverIsPerformingTransform & XF86DriverTransformOutput) {
             xf86RotateDestroy(crtc);
         }
         else {

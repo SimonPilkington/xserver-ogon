@@ -81,9 +81,9 @@ extern int noPanoramiXExtension;
 #define DEFAULT_STARTX X11BINDIR "/startx -- " X11BINDIR "/Xquartz"
 #define DEFAULT_SHELL  "/bin/sh"
 
-#ifndef BUILD_DATE
-#define BUILD_DATE ""
-#endif
+#define _STRINGIZE(s) #s
+#define STRINGIZE(s) _STRINGIZE(s)
+
 #ifndef XSERVER_VERSION
 #define XSERVER_VERSION "?"
 #endif
@@ -99,7 +99,7 @@ asm (".desc ___crashreporter_info__, 0x10");
 #endif
 
 static const char *__crashreporter_info__base =
-    "X.Org X Server " XSERVER_VERSION " Build Date: " BUILD_DATE;
+    "X.Org X Server " XSERVER_VERSION ";
 
 char *bundle_id_prefix = NULL;
 static char *server_bootstrap_name = NULL;

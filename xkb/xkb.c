@@ -172,8 +172,8 @@ ProcXkbUseExtension(ClientPtr client)
 
     if ((supported) && (!(client->xkbClientFlags & _XkbClientInitialized))) {
         client->xkbClientFlags = _XkbClientInitialized;
-        client->vMajor = stuff->wantedMajor;
-        client->vMinor = stuff->wantedMinor;
+        if (stuff->wantedMajor == 0)
+            client->xkbClientFlags |= _XkbClientIsAncient;
     }
     else if (xkbDebugFlags & 0x1) {
         ErrorF
@@ -2110,6 +2110,9 @@ SetKeySyms(ClientPtr client,
                 }
             }
         }
+        if (XkbKeyHasActions(xkb, i + req->firstKeySym))
+            XkbResizeKeyActions(xkb, i + req->firstKeySym,
+                                XkbNumGroups(wire->groupInfo) * wire->width);
         oldMap->kt_index[0] = wire->ktIndex[0];
         oldMap->kt_index[1] = wire->ktIndex[1];
         oldMap->kt_index[2] = wire->ktIndex[2];
@@ -2216,12 +2219,11 @@ SetKeyBehaviors(XkbSrvInfoPtr xkbi,
     }
 
     if (maxRG > (int) xkbi->nRadioGroups) {
-        int sz = maxRG * sizeof(XkbRadioGroupRec);
-
         if (xkbi->radioGroups)
-            xkbi->radioGroups = realloc(xkbi->radioGroups, sz);
+            xkbi->radioGroups = reallocarray(xkbi->radioGroups, maxRG,
+                                             sizeof(XkbRadioGroupRec));
         else
-            xkbi->radioGroups = calloc(1, sz);
+            xkbi->radioGroups = calloc(maxRG, sizeof(XkbRadioGroupRec));
         if (xkbi->radioGroups) {
             if (xkbi->nRadioGroups)
                 memset(&xkbi->radioGroups[xkbi->nRadioGroups], 0,
@@ -2384,12 +2386,16 @@ _XkbSetMapChecks(ClientPtr client, DeviceIntPtr dev, xkbSetMapReq * req,
     XkbSymMapPtr map;
     int i;
 
+    if (!dev->key)
+        return 0;
+
     xkbi = dev->key->xkbInfo;
     xkb = xkbi->desc;
 
     if ((xkb->min_key_code != req->minKeyCode) ||
         (xkb->max_key_code != req->maxKeyCode)) {
-        if (client->vMajor != 1) {      /* pre 1.0 versions of Xlib have a bug */
+        if (client->xkbClientFlags & _XkbClientIsAncient) {
+            /* pre 1.0 versions of Xlib have a bug */
             req->minKeyCode = xkb->min_key_code;
             req->maxKeyCode = xkb->max_key_code;
         }
@@ -2495,6 +2501,9 @@ _XkbSetMap(ClientPtr client, DeviceIntPtr dev, xkbSetMapReq * req, char *values)
     XkbSrvInfoPtr xkbi;
     XkbDescPtr xkb;
 
+    if (!dev->key)
+        return Success;
+
     xkbi = dev->key->xkbInfo;
     xkb = xkbi->desc;
 
@@ -2570,7 +2579,7 @@ _XkbSetMap(ClientPtr client, DeviceIntPtr dev, xkbSetMapReq * req, char *values)
             first = last = 0;
         if (change.map.num_modmap_keys > 0) {
             firstMM = change.map.first_modmap_key;
-            lastMM = first + change.map.num_modmap_keys - 1;
+            lastMM = firstMM + change.map.num_modmap_keys - 1;
         }
         else
             firstMM = lastMM = 0;
@@ -2627,6 +2636,8 @@ ProcXkbSetMap(ClientPtr client)
     if (rc != Success)
         return rc;
 
+    DeviceIntPtr master = GetMaster(dev, MASTER_KEYBOARD);
+
     if (stuff->deviceSpec == XkbUseCoreKbd) {
         DeviceIntPtr other;
 
@@ -2642,9 +2653,21 @@ ProcXkbSetMap(ClientPtr client)
                 }
             }
         }
+    } else {
+        DeviceIntPtr other;
+
+        for (other = inputInfo.devices; other; other = other->next) {
+            if (other != dev && GetMaster(other, MASTER_KEYBOARD) != dev &&
+                (other != master || dev != master->lastSlave))
+                continue;
+
+            rc = _XkbSetMapChecks(client, other, stuff, tmp);
+            if (rc != Success)
+                return rc;
+        }
     }
 
-    /* We know now that we will succed with the SetMap. In theory anyway. */
+    /* We know now that we will succeed with the SetMap. In theory anyway. */
     rc = _XkbSetMap(client, dev, stuff, tmp);
     if (rc != Success)
         return rc;
@@ -2664,6 +2687,16 @@ ProcXkbSetMap(ClientPtr client)
                    set all other devices, hoping that at least they stay in
                    sync. */
             }
+        }
+    } else {
+        DeviceIntPtr other;
+
+        for (other = inputInfo.devices; other; other = other->next) {
+            if (other != dev && GetMaster(other, MASTER_KEYBOARD) != dev &&
+                (other != master || dev != master->lastSlave))
+                continue;
+
+            _XkbSetMap(client, other, stuff, tmp); //ignore rc
         }
     }
 
@@ -2700,14 +2733,15 @@ XkbSendCompatMap(ClientPtr client,
     char *data;
     int size;
 
-    size = rep->length * 4;
-    if (size > 0) {
-        data = malloc(size);
+    if (rep->length > 0) {
+        data = xallocarray(rep->length, 4);
         if (data) {
             register unsigned i, bit;
             xkbModsWireDesc *grp;
             XkbSymInterpretPtr sym = &compat->sym_interpret[rep->firstSI];
             xkbSymInterpretWireDesc *wire = (xkbSymInterpretWireDesc *) data;
+
+            size = rep->length * 4;
 
             for (i = 0; i < rep->nSI; i++, sym++, wire++) {
                 wire->sym = sym->sym;
@@ -2856,9 +2890,9 @@ _XkbSetCompatMap(ClientPtr client, DeviceIntPtr dev,
 
         if ((unsigned) (req->firstSI + req->nSI) > compat->num_si) {
             compat->num_si = req->firstSI + req->nSI;
-            compat->sym_interpret = realloc(compat->sym_interpret,
-                                            compat->num_si *
-                                            sizeof(XkbSymInterpretRec));
+            compat->sym_interpret = reallocarray(compat->sym_interpret,
+                                                 compat->num_si,
+                                                 sizeof(XkbSymInterpretRec));
             if (!compat->sym_interpret) {
                 compat->num_si = 0;
                 return BadAlloc;
@@ -3086,13 +3120,14 @@ XkbSendIndicatorMap(ClientPtr client,
     register int i;
     register unsigned bit;
 
-    length = rep->length * 4;
-    if (length > 0) {
+    if (rep->length > 0) {
         CARD8 *to;
 
-        to = map = malloc(length);
+        to = map = xallocarray(rep->length, 4);
         if (map) {
             xkbIndicatorMapWireDesc *wire = (xkbIndicatorMapWireDesc *) to;
+
+            length = rep->length * 4;
 
             for (i = 0, bit = 1; i < XkbNumIndicators; i++, bit <<= 1) {
                 if (rep->which & bit) {
@@ -4863,7 +4898,6 @@ XkbComputeGetGeometryReplySize(XkbGeometryPtr geom,
     }
     return Success;
 }
-
 static int
 XkbSendGeometry(ClientPtr client,
                 XkbGeometryPtr geom, xkbGetGeometryReply * rep, Bool freeGeom)
@@ -4872,10 +4906,10 @@ XkbSendGeometry(ClientPtr client,
     int len;
 
     if (geom != NULL) {
-        len = rep->length * 4;
-        start = desc = malloc(len);
+        start = desc = xallocarray(rep->length, 4);
         if (!start)
             return BadAlloc;
+        len = rep->length * 4;
         desc = XkbWriteCountedString(desc, geom->label_font, client->swapped);
         if (rep->nProperties > 0)
             desc = XkbWriteGeomProperties(desc, geom, client->swapped);
@@ -5692,7 +5726,6 @@ ProcXkbListComponents(ClientPtr client)
 }
 
 /***====================================================================***/
-
 int
 ProcXkbGetKbdByName(ClientPtr client)
 {
@@ -5707,6 +5740,7 @@ ProcXkbGetKbdByName(ClientPtr client)
     xkbGetGeometryReply grep = { 0 };
     XkbComponentNamesRec names = { 0 };
     XkbDescPtr xkb, new;
+    XkbEventCauseRec cause;
     unsigned char *str;
     char mapFile[PATH_MAX];
     unsigned len;
@@ -6017,6 +6051,9 @@ ProcXkbGetKbdByName(ClientPtr client)
         new = NULL;
     }
     XkbFreeComponentNames(&names, FALSE);
+    XkbSetCauseXkbReq(&cause, X_kbGetKbdByName, client);
+    XkbUpdateAllDeviceIndicators(NULL, &cause);
+
     return Success;
 }
 

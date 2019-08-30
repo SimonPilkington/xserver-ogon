@@ -62,8 +62,8 @@ SOFTWARE.
 #include <X11/Xmd.h>
 #include "servermd.h"
 
-#ifndef HAVE_FFS
-extern int ffs(int);
+#ifdef __MINGW32__
+#define ffs __builtin_ffs
 #endif
 
 /* MICOPYAREA -- public entry for the CopyArea request
@@ -96,9 +96,9 @@ miCopyArea(DrawablePtr pSrcDrawable,
     srcx = xIn + pSrcDrawable->x;
     srcy = yIn + pSrcDrawable->y;
 
-    /* If the destination isn't realized, this is easy */
+    /* If the destination is clipped away, this is easy */
     if (pDstDrawable->type == DRAWABLE_WINDOW &&
-        !((WindowPtr) pDstDrawable)->realized)
+        RegionNil(pGC->pCompositeClip))
         return NULL;
 
     /* clip the source */
@@ -136,15 +136,17 @@ miCopyArea(DrawablePtr pSrcDrawable,
         dsty += pDstDrawable->y;
     }
 
-    pptFirst = ppt = malloc(heightSrc * sizeof(DDXPointRec));
-    pwidthFirst = pwidth = malloc(heightSrc * sizeof(unsigned int));
+    pptFirst = ppt = xallocarray(heightSrc, sizeof(DDXPointRec));
+    pwidthFirst = pwidth = xallocarray(heightSrc, sizeof(unsigned int));
     numRects = RegionNumRects(prgnSrcClip);
     boxes = RegionRects(prgnSrcClip);
-    ordering = malloc(numRects * sizeof(unsigned int));
+    ordering = xallocarray(numRects, sizeof(unsigned int));
     if (!pptFirst || !pwidthFirst || !ordering) {
         free(ordering);
         free(pwidthFirst);
         free(pptFirst);
+        if (realSrcClip)
+            RegionDestroy(prgnSrcClip);
         return NULL;
     }
 
@@ -221,7 +223,7 @@ miCopyArea(DrawablePtr pSrcDrawable,
             ppt++->y = y++;
             *pwidth++ = width;
         }
-        pbits = malloc(height * PixmapBytePad(width, pSrcDrawable->depth));
+        pbits = xallocarray(height, PixmapBytePad(width, pSrcDrawable->depth));
         if (pbits) {
             (*pSrcDrawable->pScreen->GetSpans) (pSrcDrawable, width, pptFirst,
                                                 (int *) pwidthFirst, height,
@@ -398,8 +400,8 @@ miOpqStipDrawable(DrawablePtr pDraw, GCPtr pGC, RegionPtr prgnSrc,
     ChangeGC(NullClient, pGCT, GCBackground, gcv);
     ValidateGC((DrawablePtr) pPixmap, pGCT);
     miClearDrawable((DrawablePtr) pPixmap, pGCT);
-    ppt = pptFirst = malloc(h * sizeof(DDXPointRec));
-    pwidth = pwidthFirst = malloc(h * sizeof(int));
+    ppt = pptFirst = xallocarray(h, sizeof(DDXPointRec));
+    pwidth = pwidthFirst = xallocarray(h, sizeof(int));
     if (!pptFirst || !pwidthFirst) {
         free(pwidthFirst);
         free(pptFirst);
@@ -746,8 +748,8 @@ miPutImage(DrawablePtr pDraw, GCPtr pGC, int depth,
         break;
 
     case ZPixmap:
-        ppt = pptFirst = malloc(h * sizeof(DDXPointRec));
-        pwidth = pwidthFirst = malloc(h * sizeof(int));
+        ppt = pptFirst = xallocarray(h, sizeof(DDXPointRec));
+        pwidth = pwidthFirst = xallocarray(h, sizeof(int));
         if (!pptFirst || !pwidthFirst) {
             free(pwidthFirst);
             free(pptFirst);

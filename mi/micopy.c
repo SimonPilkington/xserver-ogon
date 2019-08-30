@@ -62,7 +62,7 @@ miCopyRegion(DrawablePtr pSrcDrawable,
 
         if (nbox > 1) {
             /* keep ordering in each band, reverse order of bands */
-            pboxNew1 = (BoxPtr) malloc(sizeof(BoxRec) * nbox);
+            pboxNew1 = xallocarray(nbox, sizeof(BoxRec));
             if (!pboxNew1)
                 return;
             pboxBase = pboxNext = pbox + nbox - 1;
@@ -93,7 +93,7 @@ miCopyRegion(DrawablePtr pSrcDrawable,
 
         if (nbox > 1) {
             /* reverse order of rects in each band */
-            pboxNew2 = (BoxPtr) malloc(sizeof(BoxRec) * nbox);
+            pboxNew2 = xallocarray(nbox, sizeof(BoxRec));
             if (!pboxNew2) {
                 free(pboxNew1);
                 return;
@@ -152,10 +152,9 @@ miDoCopy(DrawablePtr pSrcDrawable,
     Bool fastDst = FALSE;       /* for fast clipping with one rect dest */
     Bool fastExpose = FALSE;    /* for fast exposures with pixmap source */
 
-    /* Short cut for unmapped windows */
-
+    /* Short cut for unmapped or fully clipped windows */
     if (pDstDrawable->type == DRAWABLE_WINDOW &&
-        !((WindowPtr) pDstDrawable)->realized) {
+        RegionNil(pGC->pCompositeClip)) {
         return NULL;
     }
 

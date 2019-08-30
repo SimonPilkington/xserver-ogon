@@ -105,6 +105,18 @@ compInstallColormap(ColormapPtr pColormap)
     pScreen->InstallColormap = compInstallColormap;
 }
 
+static void
+compCheckBackingStore(WindowPtr pWin)
+{
+    if (pWin->backingStore != NotUseful) {
+        compRedirectWindow(serverClient, pWin, CompositeRedirectAutomatic);
+    }
+    else {
+        compUnredirectWindow(serverClient, pWin,
+                             CompositeRedirectAutomatic);
+    }
+}
+
 /* Fake backing store via automatic redirection */
 static Bool
 compChangeWindowAttributes(WindowPtr pWin, unsigned long mask)
@@ -117,17 +129,8 @@ compChangeWindowAttributes(WindowPtr pWin, unsigned long mask)
     ret = pScreen->ChangeWindowAttributes(pWin, mask);
 
     if (ret && (mask & CWBackingStore) &&
-        pScreen->backingStoreSupport != NotUseful) {
-        if (pWin->backingStore != NotUseful && !pWin->backStorage) {
-            compRedirectWindow(serverClient, pWin, CompositeRedirectAutomatic);
-            pWin->backStorage = TRUE;
-        }
-        else if (pWin->backingStore == NotUseful && pWin->backStorage) {
-            compUnredirectWindow(serverClient, pWin,
-                                 CompositeRedirectAutomatic);
-            pWin->backStorage = FALSE;
-        }
-    }
+        pScreen->backingStoreSupport != NotUseful)
+        compCheckBackingStore(pWin);
 
     pScreen->ChangeWindowAttributes = compChangeWindowAttributes;
 
@@ -223,8 +226,8 @@ compRegisterAlternateVisuals(CompScreenPtr cs, VisualID * vids, int nVisuals)
 {
     VisualID *p;
 
-    p = realloc(cs->alternateVisuals,
-                sizeof(VisualID) * (cs->numAlternateVisuals + nVisuals));
+    p = reallocarray(cs->alternateVisuals,
+                     cs->numAlternateVisuals + nVisuals, sizeof(VisualID));
     if (p == NULL)
         return FALSE;
 
@@ -253,8 +256,8 @@ CompositeRegisterImplicitRedirectionException(ScreenPtr pScreen,
     CompScreenPtr cs = GetCompScreen(pScreen);
     CompImplicitRedirectException *p;
 
-    p = realloc(cs->implicitRedirectExceptions,
-                sizeof(p[0]) * (cs->numImplicitRedirectExceptions + 1));
+    p = reallocarray(cs->implicitRedirectExceptions,
+                     cs->numImplicitRedirectExceptions + 1, sizeof(p[0]));
     if (p == NULL)
         return FALSE;
 
@@ -278,9 +281,6 @@ static CompAlternateVisual altVisuals[] = {
 #endif
     {32, PICT_a8r8g8b8},
 };
-
-static const int NUM_COMP_ALTERNATE_VISUALS = sizeof(altVisuals) /
-    sizeof(CompAlternateVisual);
 
 static Bool
 compAddAlternateVisual(ScreenPtr pScreen, CompScreenPtr cs,
@@ -357,7 +357,7 @@ compAddAlternateVisuals(ScreenPtr pScreen, CompScreenPtr cs)
 {
     int alt, ret = 0;
 
-    for (alt = 0; alt < NUM_COMP_ALTERNATE_VISUALS; alt++)
+    for (alt = 0; alt < ARRAY_SIZE(altVisuals); alt++)
         ret |= compAddAlternateVisual(pScreen, cs, altVisuals + alt);
 
     return ! !ret;
@@ -384,6 +384,8 @@ compScreenInit(ScreenPtr pScreen)
     cs->overlayWid = FakeClientID(0);
     cs->pOverlayWin = NULL;
     cs->pOverlayClients = NULL;
+
+    cs->pendingScreenUpdate = FALSE;
 
     cs->numAlternateVisuals = 0;
     cs->alternateVisuals = NULL;
@@ -439,8 +441,6 @@ compScreenInit(ScreenPtr pScreen)
 
     cs->ChangeWindowAttributes = pScreen->ChangeWindowAttributes;
     pScreen->ChangeWindowAttributes = compChangeWindowAttributes;
-
-    cs->BlockHandler = NULL;
 
     cs->CloseScreen = pScreen->CloseScreen;
     pScreen->CloseScreen = compCloseScreen;
